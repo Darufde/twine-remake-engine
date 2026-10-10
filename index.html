@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Story Builder</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <!-- My Stories -->
+    <section id="library-view"></section>
+
+    <!-- Story editor -->
+    <section id="editor-view" hidden>
+      <header id="topbar" class="topbar"></header>
+      <div class="workspace">
+        <div id="map">
+          <div id="map-inner">
+            <svg id="map-arrows" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div id="map-cards"></div>
+          </div>
+        </div>
+        <aside id="panel" hidden></aside>
+      </div>
+    </section>
+
+    <!-- Test play -->
+    <div id="play-overlay" hidden>
+      <div class="play-bar">
+        <span id="play-title">Testing</span>
+        <button id="play-close" class="btn">✕ Back to editing</button>
+      </div>
+      <div id="play-root"></div>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="toast" class="toast" hidden></div>
+  </div>
+
+  <script src="js/model.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/compile.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
