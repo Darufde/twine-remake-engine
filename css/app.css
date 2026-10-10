@@ -20,7 +20,7 @@
   --warn-text: #8a5a00;
   --map-bg: #eeebe5;
   --map-dot: #d5d0c6;
-  --arrow: #7d8aa3;
+  --arrow: #6d7c9c;
   --card-border: #d6d1c7;
   --card-hover: #a9b8d8;
   --inset-bg: rgba(255,255,255,.6);
@@ -62,7 +62,7 @@
   --warn-text: #f0c25e;
   --map-bg: #121317;
   --map-dot: #2a2c34;
-  --arrow: #6f7c96;
+  --arrow: #8e9cc0;
   --card-border: #3a3d48;
   --card-hover: #5b6f99;
   --inset-bg: rgba(0,0,0,.18);
@@ -186,7 +186,16 @@ button { font: inherit; }
 .zoom { display: flex; align-items: center; gap: 2px; border: 1px solid var(--border); border-radius: 8px; padding: 1px 3px; }
 .zoom-pct { font-size: 12px; width: 38px; text-align: center; color: var(--muted); }
 
-.workspace { flex: 1; display: flex; min-height: 0; }
+.workspace { flex: 1; display: flex; min-height: 0; position: relative; }
+.map-tip {
+  position: absolute; bottom: 14px; left: 14px; z-index: 10; max-width: 400px;
+  background: var(--surface); border: 2px solid var(--play); border-radius: 14px;
+  padding: 12px 14px; box-shadow: 0 8px 28px rgba(0,0,0,.25); font-size: 14px;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+}
+.tip-row { display: flex; gap: 10px; align-items: center; }
+.tip-plus { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--play); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.tip-icon { flex: none; width: 28px; text-align: center; font-size: 18px; }
 #map {
   flex: 1; overflow: auto; position: relative;
   background-color: var(--map-bg);
@@ -194,11 +203,28 @@ button { font: inherit; }
   background-size: 20px 20px;
 }
 #map-inner { position: relative; }
-#map-arrows, #map-cards { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+#map-arrows, #map-cards, #map-labels { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+#map-labels, #map-cards { pointer-events: none; }
+.card { pointer-events: auto; }
 #map-arrows { pointer-events: none; overflow: visible; }
-.arrow { fill: none; stroke: var(--arrow); stroke-width: 2; }
+.arrow { fill: none; stroke: var(--arrow); stroke-width: 3; stroke-linecap: round; }
+.arrow-active { stroke: var(--accent); stroke-width: 3.5; }
+.arrow-new { stroke: var(--play); stroke-width: 3.5; stroke-dasharray: 8 6; }
 .arrow-goto { stroke-dasharray: 6 5; stroke: var(--c-goto); }
 .arrowhead { fill: var(--arrow); }
+.arrowhead-active { fill: var(--accent); }
+.arrowhead-new { fill: var(--play); }
+
+.arrow-label {
+  position: absolute; transform: translate(-50%, -50%);
+  pointer-events: auto; cursor: pointer; white-space: nowrap;
+  font-size: 12px; font-weight: 600; padding: 3px 10px;
+  border-radius: 999px; border: 2px solid var(--arrow);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+}
+.arrow-label:hover { border-color: var(--accent); background: var(--accent-soft); }
+.arrow-label.active { border-color: var(--accent); }
+.arrow-label-goto { border-style: dashed; border-color: var(--c-goto); }
 
 .card {
   position: absolute;
@@ -210,12 +236,22 @@ button { font: inherit; }
   cursor: pointer;
   user-select: none;
   touch-action: none;
-  overflow: hidden;
   display: flex; flex-direction: column; gap: 4px;
 }
 .card:hover { border-color: var(--card-hover); }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,111,216,.25), var(--shadow); }
 .card.start { border-top: 5px solid #e6b422; }
+.card.drop-target { border-color: var(--play); box-shadow: 0 0 0 5px rgba(35,163,93,.35), var(--shadow); transform: scale(1.04); }
+body.connecting, body.connecting * { cursor: copy !important; }
+.card-handle {
+  position: absolute; right: -19px; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--play); color: #fff; font-size: 22px; font-weight: 800; line-height: 1;
+  border: 3px solid var(--map-bg); box-shadow: var(--shadow);
+  cursor: grab; touch-action: none; z-index: 2; transition: transform .12s;
+}
+.card-handle:hover { transform: translateY(-50%) scale(1.18); }
 .card.dragging { cursor: grabbing; opacity: .9; box-shadow: 0 10px 30px rgba(0,0,0,.2); z-index: 5; }
 .card-title { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-snippet { font-size: 12.5px; color: var(--muted); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-family: Georgia, serif; }

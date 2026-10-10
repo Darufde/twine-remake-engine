@@ -162,7 +162,8 @@
         sec('The basics',
           h('ul', {},
             li(h('strong', {}, 'Passages'), ' are the pages of your story. Each card on the map is one passage. Click a card to edit it, drag it to move it, double-click empty space to make a new one.'),
-            li(h('strong', {}, 'Arrows'), ' show where your choices lead. Solid arrows are choices; dashed arrows are automatic jumps.'),
+            li(h('strong', {}, 'Arrows'), ' show where your choices lead. Each arrow shows the words on the button. Dashed arrows are automatic jumps.'),
+            li(h('strong', {}, 'Connecting passages'), ': every passage has a green ＋. Drag it onto another passage to connect them, or click it to make a brand-new passage that is already connected. Click the words on an arrow to change them or cut the connection.'),
             li('The ⭐ passage is where the story starts.'),
             li('Press ', h('strong', {}, '▶ Play'), ' at any time to try your story.'))),
         sec('Blocks — what each button does',
@@ -181,7 +182,10 @@
             li('Everything saves automatically in this browser. Use ', h('strong', {}, 'Export → Backup (.json)'), ' to keep a copy, and "Open a backup" to load it again — even on another computer.'),
             li(h('strong', {}, 'Export → Playable game'), ' makes one .html file anyone can double-click to play.'),
             li(h('strong', {}, 'Export → Twine 2 file'), ' makes a file you can open in real Twine 2 (Library → Import). It uses the SugarCube story format, so all your stats, conditions and items keep working there.')))),
-      buttons: [{ label: 'Got it!', kind: 'primary' }],
+      buttons: [
+        ...(!$('#editor-view').hidden ? [{ label: 'Show the map tips again', onClick: () => TR.editor.showTip() }] : []),
+        { label: 'Got it!', kind: 'primary' },
+      ],
     });
   };
 

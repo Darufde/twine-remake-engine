@@ -19,7 +19,15 @@ An example story, *The Locked Castle*, is included so you can see how everything
 |---|---|
 | **Passage** | One page of your story. Each card on the map is a passage. Click to edit, drag to move, double-click empty space for a new one. |
 | ⭐ **Start** | The passage readers begin on. |
-| **Arrows** | Show where choices lead (dashed = automatic jump). |
+| **Arrows** | Show where choices lead. The words on each arrow are the button the reader clicks (dashed = automatic jump). |
+
+### Connecting passages (the easy way)
+
+Every passage card has a big green **＋**:
+
+- **Drag the ＋ onto another passage** to connect them. A choice button is added for you.
+- **Click the ＋** (or drop it on empty space) to make a **new** passage that's already connected. You just type what happens next.
+- **Click the words on an arrow** to change the button words or cut the connection.
 
 ### Block buttons (instead of SugarCube code)
 

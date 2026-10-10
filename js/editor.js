@@ -173,11 +173,12 @@
     const inner = $('#map-inner');
     const cards = $('#map-cards');
     const svg = $('#map-arrows');
+    const labels = $('#map-labels');
     const w = Math.max(2400, ...story.passages.map((p) => p.x + CARD_W + 800));
     const hgt = Math.max(1600, ...story.passages.map((p) => p.y + CARD_H + 600));
     inner.style.width = w * zoom + 'px';
     inner.style.height = hgt * zoom + 'px';
-    [cards, svg].forEach((el) => {
+    [cards, svg, labels].forEach((el) => {
       el.style.width = w + 'px';
       el.style.height = hgt + 'px';
       el.style.transform = `scale(${zoom})`;
@@ -189,18 +190,23 @@
     story.passages.forEach((p) => {
       const problems = TR.passageProblems(story, p);
       const isStart = p.id === story.startId;
+      const handle = h('div', { class: 'card-handle', title: 'Drag me onto another passage to connect them.\nDrop me on empty space (or just click me) to make a new passage.' }, '＋');
       const card = h('div', {
         class: 'card' + (p.id === openId ? ' selected' : '') + (isStart ? ' start' : ''),
         style: { left: p.x + 'px', top: p.y + 'px', width: CARD_W + 'px', height: CARD_H + 'px' },
         title: 'Click to edit · drag to move',
+        'data-id': p.id,
       },
       h('div', { class: 'card-title' }, isStart ? h('span', { class: 'badge-start', title: 'The story starts here' }, '⭐ ') : null, p.name),
       h('div', { class: 'card-snippet', text: TR.passageSnippet(p) || 'Empty — click to write' }),
-      problems.length ? h('div', { class: 'card-warn', title: problems.join('\n') }, `⚠ ${problems.length} to fix`) : null);
+      problems.length ? h('div', { class: 'card-warn', title: problems.join('\n') }, `⚠ ${problems.length} to fix`) : null,
+      handle);
       card.addEventListener('pointerdown', (e) => startDrag(e, p, card));
+      handle.addEventListener('pointerdown', (e) => startConnect(e, p, handle));
       cards.appendChild(card);
     });
     renderArrows();
+    renderTip();
   }
 
   function startDrag(e, p, card) {
@@ -238,26 +244,135 @@
     card.addEventListener('pointercancel', up);
   }
 
+  // ---------- connecting passages by dragging the ＋ handle ----------
+
+  // Map coordinates (unzoomed) for a mouse/finger position.
+  function mapPoint(ev) {
+    const r = $('#map-cards').getBoundingClientRect();
+    return [(ev.clientX - r.left) / zoom, (ev.clientY - r.top) / zoom];
+  }
+
+  function cardUnder(ev) {
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const card = el && el.closest('.card');
+    return card ? story.passages.find((p) => p.id === card.dataset.id) : null;
+  }
+
+  function startConnect(e, from, handle) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    handle.setPointerCapture(e.pointerId);
+    const svg = $('#map-arrows');
+    const start = [from.x + CARD_W, from.y + CARD_H / 2];
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    line.setAttribute('class', 'arrow arrow-new');
+    line.setAttribute('marker-end', 'url(#arrowhead-new)');
+    let moved = false;
+    let target = null;
+    const sx = e.clientX, sy = e.clientY;
+    const mark = (p) => {
+      document.querySelectorAll('.card.drop-target').forEach((c) => c.classList.remove('drop-target'));
+      if (p) { const c = document.querySelector(`.card[data-id="${p.id}"]`); if (c) c.classList.add('drop-target'); }
+    };
+    const move = (ev) => {
+      if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+      if (!moved) { moved = true; svg.appendChild(line); document.body.classList.add('connecting'); }
+      const pt = mapPoint(ev);
+      line.setAttribute('d', `M${start[0]},${start[1]} L${pt[0]},${pt[1]}`);
+      const over = cardUnder(ev);
+      target = over && over !== from ? over : null;
+      mark(target);
+    };
+    const up = async (ev) => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', cancel);
+      line.remove();
+      mark(null);
+      document.body.classList.remove('connecting');
+      if (!moved) {
+        // Just a click: make the next passage to the right.
+        await connectToNew(from, from.x + CARD_W + 180, from.y);
+      } else if (target) {
+        connect(from, target);
+      } else if (!cardUnder(ev)) {
+        const pt = mapPoint(ev);
+        await connectToNew(from, pt[0] - CARD_W / 2, pt[1] - CARD_H / 2);
+      }
+    };
+    const cancel = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', cancel);
+      line.remove();
+      mark(null);
+      document.body.classList.remove('connecting');
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', cancel);
+  }
+
+  // Add a choice button in `from` that goes to `to`.
+  function connect(from, to, label) {
+    from.blocks.push({ type: 'choice', label: label || to.name, target: to.id, actions: [] });
+    touch();
+    if (openId === from.id) renderPanel();
+    renderMap();
+    TR.toast(`🔗 Connected! "${from.name}" now has a button that goes to "${to.name}".`, 3500);
+  }
+
+  async function connectToNew(from, x, y) {
+    const name = await TR.askText({
+      title: '➕ What happens next?',
+      label: 'Give the new passage a short name',
+      hint: 'This is also the words on the button the reader clicks. Example: "Open the door"',
+      value: '',
+      okLabel: 'Make it!',
+    });
+    if (name === null) return;
+    const to = addPassageAt(x, y, name || 'Next');
+    connect(from, to, name || 'Next');
+  }
+
+  // ---------- arrows ----------
+
   // Point on the edge of a card, heading from `from` toward `to`.
   function edgePoint(from, to) {
     const dx = to[0] - from[0], dy = to[1] - from[1];
-    const sx = dx ? (CARD_W / 2 + 6) / Math.abs(dx) : Infinity;
-    const sy = dy ? (CARD_H / 2 + 6) / Math.abs(dy) : Infinity;
+    const sx = dx ? (CARD_W / 2 + 8) / Math.abs(dx) : Infinity;
+    const sy = dy ? (CARD_H / 2 + 8) / Math.abs(dy) : Infinity;
     const s = Math.min(sx, sy, 1);
     return [from[0] + dx * s, from[1] + dy * s];
   }
 
+  // Every choice/jump block in a passage, with the list it lives in.
+  function linkBlocks(blocks, out = []) {
+    blocks.forEach((b) => {
+      if ((b.type === 'choice' || b.type === 'goto') && b.target) out.push({ block: b, list: blocks });
+      if (b.type === 'if') {
+        b.branches.forEach((br) => linkBlocks(br.blocks, out));
+        if (b.hasElse) linkBlocks(b.elseBlocks, out);
+      }
+    });
+    return out;
+  }
+
+  const shorten = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+
   function renderArrows() {
     const svg = $('#map-arrows');
+    const labels = $('#map-labels');
     const byId = {};
     story.passages.forEach((p) => { byId[p.id] = p; });
     let paths = '';
+    labels.innerHTML = '';
     story.passages.forEach((p) => {
-      const seen = new Set();
-      TR.passageLinks(p).forEach((l) => {
-        const t = byId[l.target];
-        if (!t || t === p || seen.has(l.target + l.kind)) return;
-        seen.add(l.target + l.kind);
+      const perTarget = {};
+      linkBlocks(p.blocks).forEach(({ block, list }) => {
+        const t = byId[block.target];
+        if (!t || t === p) return;
         const a = [p.x + CARD_W / 2, p.y + CARD_H / 2];
         const b = [t.x + CARD_W / 2, t.y + CARD_H / 2];
         const s = edgePoint(a, b), e = edgePoint(b, a);
@@ -266,17 +381,82 @@
         const off = Math.min(40, len * 0.15);
         const cx = (s[0] + e[0]) / 2 - (dy / len) * off;
         const cy = (s[1] + e[1]) / 2 + (dx / len) * off;
-        paths += `<path d="M${s[0]},${s[1]} Q${cx},${cy} ${e[0]},${e[1]}" class="arrow arrow-${l.kind}" marker-end="url(#arrowhead)"/>`;
+        const n = (perTarget[t.id] = (perTarget[t.id] || 0) + 1);
+        const active = openId && (p.id === openId || t.id === openId);
+        if (n === 1) {
+          paths += `<path d="M${s[0]},${s[1]} Q${cx},${cy} ${e[0]},${e[1]}" class="arrow arrow-${block.type}${active ? ' arrow-active' : ''}" marker-end="url(#arrowhead${active ? '-active' : ''})"/>`;
+        }
+        // The middle of the curve, where the button words go.
+        const mx = 0.25 * s[0] + 0.5 * cx + 0.25 * e[0];
+        const my = 0.25 * s[1] + 0.5 * cy + 0.25 * e[1] + (n - 1) * 26;
+        const text = block.type === 'goto' ? '➡️ jumps here' : '🔘 ' + shorten(block.label || t.name, 26);
+        labels.appendChild(h('button', {
+          type: 'button',
+          class: 'arrow-label arrow-label-' + block.type + (active ? ' active' : ''),
+          style: { left: mx + 'px', top: my + 'px' },
+          title: 'Click to change or remove this connection',
+          onclick: (ev) => linkMenu(ev.currentTarget, p, t, block, list),
+        }, text));
       });
     });
     svg.innerHTML =
-      '<defs><marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>' +
-      paths;
+      '<defs>' +
+      ['', '-active', '-new'].map((k) => `<marker id="arrowhead${k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead${k}"/></marker>`).join('') +
+      '</defs>' + paths;
   }
+
+  function linkMenu(anchor, from, to, block, list) {
+    const items = [];
+    if (block.type === 'choice') {
+      items.push({
+        label: '✏️ Change the button words',
+        hint: `Now: "${block.label || to.name}"`,
+        onClick: async () => {
+          const words = await TR.askText({ title: 'Button words', label: 'What should the button say?', value: block.label || to.name, okLabel: 'Save' });
+          if (words) { block.label = words; touch(); if (openId === from.id) renderPanel(); renderMap(); }
+        },
+      });
+    }
+    items.push(
+      {
+        label: '✂️ Remove this connection',
+        hint: `Unlink "${from.name}" → "${to.name}"`,
+        onClick: async () => {
+          if (block.actions && block.actions.length && !(await TR.confirmBox('This button also changes stats or items. Remove it anyway?', 'Remove'))) return;
+          const i = list.indexOf(block);
+          if (i !== -1) list.splice(i, 1);
+          touch();
+          if (openId === from.id) renderPanel();
+          renderMap();
+          TR.toast('✂️ Connection removed.');
+        },
+      },
+      { label: `📝 Open "${shorten(from.name, 24)}"`, hint: 'The passage this arrow starts from', onClick: () => openPassage(from.id) },
+      { label: `📝 Open "${shorten(to.name, 24)}"`, hint: 'The passage this arrow goes to', onClick: () => openPassage(to.id) });
+    TR.menu(anchor, items);
+  }
+
+  // ---------- friendly tip on the map ----------
+
+  const TIP_KEY = 'storyBuilder.hideMapTip';
+  function renderTip() {
+    const tip = $('#map-tip');
+    let hidden = false;
+    try { hidden = localStorage.getItem(TIP_KEY) === '1'; } catch (e) { /* storage blocked */ }
+    tip.hidden = hidden;
+    if (hidden) return;
+    tip.innerHTML = '';
+    tip.append(
+      h('div', { class: 'tip-row' }, h('span', { class: 'tip-plus' }, '＋'), h('span', {}, h('strong', {}, 'Drag the ＋'), ' from a passage onto another passage to connect them.')),
+      h('div', { class: 'tip-row' }, h('span', { class: 'tip-plus' }, '＋'), h('span', {}, h('strong', {}, 'Click the ＋'), ' (or drop it on empty space) to make a new passage.')),
+      h('div', { class: 'tip-row' }, h('span', { class: 'tip-icon' }, '🔘'), h('span', {}, h('strong', {}, 'Click the words on an arrow'), ' to change them or cut the connection.')),
+      h('button', { class: 'btn btn-small', type: 'button', onclick: () => { try { localStorage.setItem(TIP_KEY, '1'); } catch (e) { /* storage blocked */ } tip.hidden = true; } }, 'Got it 👍'));
+  }
+  E.showTip = () => { try { localStorage.removeItem(TIP_KEY); } catch (e) { /* storage blocked */ } renderTip(); };
 
   E.initMap = () => {
     $('#map-inner').addEventListener('dblclick', (e) => {
-      if (!story || e.target.closest('.card')) return;
+      if (!story || e.target.closest('.card, .arrow-label')) return;
       const r = $('#map-cards').getBoundingClientRect();
       const p = addPassageAt((e.clientX - r.left) / zoom - CARD_W / 2, (e.clientY - r.top) / zoom - CARD_H / 2);
       openPassage(p.id);
@@ -481,7 +661,7 @@
         const name = await TR.askText({ title: 'New passage', label: 'What should the new passage be called?', value: suggestName ? suggestName() : '', okLabel: 'Create' });
         if (name === null) return;
         const from = current();
-        const np = addPassageAt(from ? from.x + CARD_W + 80 : 100, from ? from.y : 100, name || 'Untitled Passage');
+        const np = addPassageAt(from ? from.x + CARD_W + 180 : 100, from ? from.y : 100, name || 'Untitled Passage');
         onPick(np.id);
       } else if (val) {
         onPick(val);
