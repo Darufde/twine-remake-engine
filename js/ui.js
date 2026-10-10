@@ -55,6 +55,8 @@
   TR.modal = ({ title, body, buttons = [{ label: 'Close' }], wide = false, onClose }) => {
     const root = document.getElementById('modal-root');
     const close = () => {
+      // Let a half-typed field save itself (its "change" event) before it disappears.
+      if (overlay.contains(document.activeElement)) document.activeElement.blur();
       overlay.remove();
       document.removeEventListener('keydown', onKey);
       if (onClose) onClose();
@@ -108,13 +110,28 @@
   TR.menu = (anchor, items) => {
     document.querySelectorAll('.menu').forEach((m) => m.remove());
     const r = anchor.getBoundingClientRect();
-    const menu = h('div', { class: 'menu', style: { top: r.bottom + 4 + 'px', left: Math.max(8, Math.min(r.left, window.innerWidth - 300)) + 'px' } },
-      items.map((it) => h('button', { type: 'button', class: 'menu-item', onclick: () => { menu.remove(); it.onClick(); } },
+    let away = null;
+    const close = () => {
+      menu.remove();
+      document.removeEventListener('pointerdown', away, true);
+      window.removeEventListener('resize', close);
+      document.removeEventListener('scroll', close, true);
+    };
+    const menu = h('div', { class: 'menu' },
+      items.map((it) => h('button', { type: 'button', class: 'menu-item', onclick: () => { close(); it.onClick(); } },
         h('strong', { text: it.label }), it.hint ? h('small', { text: it.hint }) : null)));
     document.body.appendChild(menu);
+    // Keep the menu on screen: open upward if there is no room below.
+    const mh = menu.offsetHeight, mw = menu.offsetWidth;
+    const top = r.bottom + 4 + mh > window.innerHeight ? Math.max(8, r.top - 4 - mh) : r.bottom + 4;
+    menu.style.top = top + 'px';
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8)) + 'px';
+    away = (e) => { if (!menu.contains(e.target)) close(); };
     setTimeout(() => {
-      const away = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', away); } };
-      document.addEventListener('mousedown', away);
+      if (!menu.isConnected) return;
+      document.addEventListener('pointerdown', away, true);
+      window.addEventListener('resize', close);
+      document.addEventListener('scroll', close, true);
     }, 0);
   };
 })();

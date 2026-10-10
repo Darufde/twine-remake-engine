@@ -17,19 +17,54 @@
     }
   }
 
-  // Text: **bold**, *italic* and {stat} -> SugarCube markup.
-  function formatText(story, text) {
-    let out = String(text || '');
-    out = out.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, name, offset, whole) => {
-      const v = story.variables.find((x) => x.name === name);
-      if (!v) return m;
-      if (v.type === 'list') return `<<print $${name}.length ? $${name}.join(", ") : "nothing">>`;
-      if (v.type === 'flag') return `<<print $${name} ? "Yes" : "No">>`;
-      const next = whole.charAt(offset + m.length);
-      return /[A-Za-z0-9_.\[]/.test(next) ? `<<print $${name}>>` : `$${name}`;
+  // Story Builder text markup: **bold**, *italic* and {stat}. The player uses the same rules.
+  const TOKEN_RE = /\*\*(.+?)\*\*|\*([^*\n]+?)\*|\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+  // Anything SugarCube would read as code or markup in plain text.
+  const RISKY_RE = /[$_][A-Za-z_$]|\/\/|''|__|==|\^\^|~~|@@|\[|\]|<|>|\/\*|\*\/|\{\{\{|"""|\\|&[#A-Za-z0-9]+;|^\s*[!*#|]|^\s*----|^\s*::|^['/]|['/]$/;
+
+  function verbatim(s) {
+    if (!s || !RISKY_RE.test(s)) return s;
+    return '<nowiki>' + s.replace(/<\/nowiki>/gi, '<\u200B/nowiki>') + '</nowiki>';
+  }
+
+  // Shows a stat as plain text. SugarCube's own <<print>> would treat words like
+  // '' or <b> inside a stat as markup, so the export adds this little <<stat>> macro.
+  const STAT_MACRO = [
+    '/* Story Builder: <<stat $name>> shows a stat as plain text. */',
+    "Macro.add('stat', {",
+    '  handler: function () {',
+    '    var v = this.args[0];',
+    "    var text = Array.isArray(v) ? (v.length ? v.join(', ') : 'nothing') : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v);",
+    '    jQuery(this.output).append(document.createTextNode(text));',
+    '  }',
+    '});',
+  ].join('\n');
+
+  function statCode(story, name, m, next) {
+    const v = story.variables.find((x) => x.name === name);
+    if (!v) return verbatim(m);
+    if (v.type !== 'number') return `<<stat $${name}>>`;
+    return /[A-Za-z0-9_.\[$]/.test(next) ? `<<stat $${name}>>` : `$${name}`;
+  }
+
+  function formatLine(story, line) {
+    let out = '';
+    let last = 0;
+    line.replace(TOKEN_RE, (m, bold, italic, name, offset) => {
+      out += verbatim(line.slice(last, offset));
+      if (bold != null) out += "''" + formatLine(story, bold) + "''";
+      else if (italic != null) out += '//' + formatLine(story, italic) + '//';
+      else out += statCode(story, name, m, line.charAt(offset + m.length));
+      last = offset + m.length;
+      return m;
     });
-    out = out.replace(/\*\*(.+?)\*\*/g, "''$1''").replace(/\*([^*\n]+)\*/g, '//$1//');
-    return out;
+    return out + verbatim(line.slice(last));
+  }
+
+  // Text -> SugarCube markup. Line breaks stay outside <nowiki> so they still show.
+  function formatText(story, text) {
+    return String(text || '').split('\n').map((line) => formatLine(story, line)).join('\n');
   }
 
   function ruleCode(story, rule) {
@@ -78,6 +113,7 @@
       if (v.type === 'list') return `<<set ${r} to []>>`;
     }
     if (b.type === 'item' && v.type === 'list') {
+      if (!b.item) return '';
       return b.op === 'remove' ? `<<set ${r} to ${r}.filter(i => i !== ${q(b.item)})>>` : `<<run ${r}.pushUnique(${q(b.item)})>>`;
     }
     if (b.type === 'random' && v.type === 'number') {
@@ -106,8 +142,11 @@
             break;
           }
           const actions = (b.actions || []).map((a) => actionCode(story, a)).join('');
-          if (actions || /[\[\]|]/.test(label)) {
-            out += `<<link ${q(label)} ${q(target.name)}>>${actions}<</link>>\n`;
+          const shown = formatText(story, label);
+          // [[...]] shows its words exactly as typed, so use it only for plain words.
+          const plain = shown === label && !/["'`$[\]|<>\\/{}_*~^=@]|->|<-/.test(label) && !/["`$[\]|]|->|<-/.test(target.name);
+          if (actions || !plain) {
+            out += `<<link ${q(shown)} ${q(target.name)}>>${actions}<</link>>\n`;
           } else {
             out += label === target.name ? `[[${label}]]\n` : `[[${label}|${target.name}]]\n`;
           }
@@ -175,7 +214,7 @@
     }).join('');
     return `<tw-storydata name="${escHTML(story.name)}" startnode="${startPid}" creator="Story Builder" creator-version="1.0.0" ifid="${escHTML(story.ifid)}" zoom="1" format="SugarCube" format-version="${SUGARCUBE_VERSION}" options="" hidden>` +
       '<style role="stylesheet" id="twine-user-stylesheet" type="text/twine-css"></style>' +
-      '<script role="script" id="twine-user-script" type="text/twine-javascript"></script>' +
+      `<script role="script" id="twine-user-script" type="text/twine-javascript">${STAT_MACRO}</script>` +
       body + '</tw-storydata>\n';
   };
 
@@ -184,7 +223,7 @@
     const escName = (n) => n.replace(/([\\\[\]{}])/g, '\\$1');
     const start = passageById(story, story.startId);
     const data = { ifid: story.ifid, format: 'SugarCube', 'format-version': SUGARCUBE_VERSION, start: start ? start.name : 'Start', zoom: 1 };
-    let out = `:: StoryTitle\n${story.name}\n\n:: StoryData\n${JSON.stringify(data, null, 2)}\n\n`;
+    let out = `:: StoryTitle\n${story.name}\n\n:: StoryData\n${JSON.stringify(data, null, 2)}\n\n:: StoryScript [script]\n${STAT_MACRO}\n\n`;
     allPassages(story).forEach((p) => {
       const text = p.text.replace(/^::/gm, '\\::');
       out += `:: ${escName(p.name)} {"position":"${Math.round(p.x)},${Math.round(p.y)}","size":"100,100"}\n${text}\n\n`;

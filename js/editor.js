@@ -31,7 +31,11 @@
     story.updated = Date.now();
     saveSoon();
   }
-  const mapSoon = TR.debounce(() => story && renderMap(), 250);
+  let dragging = false;
+  const mapSoon = TR.debounce(() => {
+    if (dragging) mapSoon();
+    else if (story) renderMap();
+  }, 250);
   const codeSoon = TR.debounce(() => {
     const p = current();
     if (codeOpen && codePre && p) codePre.textContent = TR.compilePassage(story, p);
@@ -66,6 +70,8 @@
     map.scrollLeft = Math.max(0, Math.min(...story.passages.map((p) => p.x)) - 60);
     map.scrollTop = Math.max(0, Math.min(...story.passages.map((p) => p.y)) - 60);
   };
+
+  E.currentStory = () => story;
 
   E.close = () => {
     TR.saveAll();
@@ -214,6 +220,7 @@
     e.preventDefault();
     const sx = e.clientX, sy = e.clientY, ox = p.x, oy = p.y;
     let moved = false;
+    dragging = true;
     card.setPointerCapture(e.pointerId);
     const move = (ev) => {
       const dx = (ev.clientX - sx) / zoom, dy = (ev.clientY - sy) / zoom;
@@ -227,6 +234,7 @@
       renderArrows();
     };
     const up = () => {
+      dragging = false;
       card.removeEventListener('pointermove', move);
       card.removeEventListener('pointerup', up);
       card.removeEventListener('pointercancel', up);
@@ -258,11 +266,17 @@
     return card ? story.passages.find((p) => p.id === card.dataset.id) : null;
   }
 
+  function onMap(ev) {
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    return !!el && $('#map').contains(el);
+  }
+
   function startConnect(e, from, handle) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     handle.setPointerCapture(e.pointerId);
+    dragging = true;
     const svg = $('#map-arrows');
     const start = [from.x + CARD_W, from.y + CARD_H / 2];
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -285,23 +299,19 @@
       mark(target);
     };
     const up = async (ev) => {
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', up);
-      handle.removeEventListener('pointercancel', cancel);
-      line.remove();
-      mark(null);
-      document.body.classList.remove('connecting');
+      cancel();
       if (!moved) {
         // Just a click: make the next passage to the right.
         await connectToNew(from, from.x + CARD_W + 180, from.y);
       } else if (target) {
         connect(from, target);
-      } else if (!cardUnder(ev)) {
+      } else if (!cardUnder(ev) && onMap(ev)) {
         const pt = mapPoint(ev);
         await connectToNew(from, pt[0] - CARD_W / 2, pt[1] - CARD_H / 2);
       }
     };
     const cancel = () => {
+      dragging = false;
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', up);
       handle.removeEventListener('pointercancel', cancel);
@@ -316,6 +326,10 @@
 
   // Add a choice button in `from` that goes to `to`.
   function connect(from, to, label) {
+    if (linkBlocks(from.blocks).some(({ block }) => block.type === 'choice' && block.target === to.id)) {
+      TR.toast(`👍 "${from.name}" already has a button that goes to "${to.name}".`, 3500);
+      return;
+    }
     from.blocks.push({ type: 'choice', label: label || to.name, target: to.id, actions: [] });
     touch();
     if (openId === from.id) renderPanel();
@@ -372,7 +386,18 @@
       const perTarget = {};
       linkBlocks(p.blocks).forEach(({ block, list }) => {
         const t = byId[block.target];
-        if (!t || t === p) return;
+        if (!t) return;
+        if (t === p) {
+          const n = (perTarget[t.id] = (perTarget[t.id] || 0) + 1);
+          labels.appendChild(h('button', {
+            type: 'button',
+            class: 'arrow-label arrow-label-' + block.type + (openId === p.id ? ' active' : ''),
+            style: { left: p.x + CARD_W / 2 + 'px', top: p.y - 16 - (n - 1) * 26 + 'px' },
+            title: 'This goes back to the same passage. Click to change or remove it.',
+            onclick: (ev) => linkMenu(ev.currentTarget, p, t, block, list),
+          }, '🔁 ' + (block.type === 'goto' ? 'jumps to itself' : shorten(block.label || t.name, 24))));
+          return;
+        }
         const a = [p.x + CARD_W / 2, p.y + CARD_H / 2];
         const b = [t.x + CARD_W / 2, t.y + CARD_H / 2];
         const s = edgePoint(a, b), e = edgePoint(b, a);
@@ -478,6 +503,7 @@
     openId = null;
     codePre = null;
     $('#panel').hidden = true;
+    $('.workspace').classList.remove('panel-open');
     if (story) renderMap();
   }
 
@@ -487,6 +513,7 @@
     if (!p) { closePanel(); return; }
     const scroll = panel.scrollTop;
     panel.hidden = false;
+    $('.workspace').classList.add('panel-open');
     panel.innerHTML = '';
 
     const nameInput = h('input', { class: 'input passage-name', type: 'text', value: p.name, title: 'Passage name' });
@@ -706,6 +733,7 @@
       let v = varOf(val);
       if (val === '__new') v = await createVarDialog('number');
       if (v) insert(`{${v.name}}`);
+      if (v && val === '__new') renderPanel();
     }, 'select-small');
 
     return h('div', {},
@@ -868,7 +896,10 @@
       };
       drawTypes();
       drawStart();
-      TR.modal({
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') m.box.querySelector('.btn-primary').click();
+      });
+      const m = TR.modal({
         title: 'New stat',
         body: h('div', {},
           h('label', { class: 'field' }, h('span', { text: 'Name' }), nameInput, h('small', { class: 'hint', text: 'Letters, numbers and _ only. Spaces become _.' })),

@@ -53,6 +53,7 @@
   TR.cleanVarName = (s) => {
     let n = String(s || '').trim().replace(/\s+/g, '_').replace(/[^A-Za-z0-9_]/g, '');
     if (/^[0-9]/.test(n)) n = '_' + n;
+    if (n === '__proto__') n = 'proto';
     return n;
   };
 
@@ -131,6 +132,15 @@
       if (['set', 'item', 'random'].includes(b.type) && !story.variables.some((v) => v.id === b.varId)) {
         problems.push('A block has no stat picked');
       }
+      if (b.type === 'item' && !String(b.item || '').trim()) {
+        problems.push('A "Give / take item" block has no item name');
+      }
+      if (b.type === 'goto' && b.target === p.id) {
+        problems.push('A jump goes back to this same passage forever');
+      }
+      if (b.type === 'if' && b.branches.some((br) => br.rules.some((r) => !story.variables.some((v) => v.id === r.varId)))) {
+        problems.push('An "If…" condition has no stat picked');
+      }
     });
     return problems;
   };
@@ -188,29 +198,70 @@
     return story;
   };
 
-  // Fill in anything missing (e.g. from an older or hand-edited backup).
+  // Fill in anything missing or broken (e.g. from an older or hand-edited backup).
+  function normalizeBlocks(blocks, actionsOnly) {
+    const allowed = actionsOnly ? ['set', 'item', 'random'] : ['text', 'choice', 'set', 'item', 'if', 'random', 'goto'];
+    return (Array.isArray(blocks) ? blocks : [])
+      .filter((b) => b && typeof b === 'object' && allowed.includes(b.type))
+      .map((b) => {
+        const out = Object.assign(TR.blockDefaults(b.type), b);
+        if (out.type === 'text') out.text = String(out.text == null ? '' : out.text);
+        if (out.type === 'choice') {
+          out.label = String(out.label == null ? '' : out.label);
+          out.actions = normalizeBlocks(out.actions, true);
+        }
+        if (out.type === 'item') out.item = String(out.item == null ? '' : out.item);
+        if (out.type === 'if') {
+          out.branches = (Array.isArray(out.branches) && out.branches.length ? out.branches : [TR.newBranch()]).map((br) => ({
+            match: br && br.match === 'any' ? 'any' : 'all',
+            rules: (br && Array.isArray(br.rules) ? br.rules : []).filter((r) => r && typeof r === 'object').map((r) => Object.assign(TR.newRule(), r)),
+            blocks: normalizeBlocks(br && br.blocks),
+          }));
+          out.hasElse = !!out.hasElse;
+          out.elseBlocks = normalizeBlocks(out.elseBlocks);
+        }
+        return out;
+      });
+  }
+
   TR.normalizeStory = (s) => {
     if (!s || typeof s !== 'object' || !Array.isArray(s.passages)) throw new Error('This file is not a Story Builder backup.');
     s.id = s.id || TR.uid();
     s.ifid = s.ifid || TR.uuid();
-    s.name = s.name || 'Untitled Story';
-    s.variables = Array.isArray(s.variables) ? s.variables : [];
-    s.passages.forEach((p) => {
-      p.id = p.id || TR.uid();
-      p.blocks = Array.isArray(p.blocks) ? p.blocks : [];
-      p.x = Number(p.x) || 0;
-      p.y = Number(p.y) || 0;
+    s.name = String(s.name || 'Untitled Story');
+
+    const vars = Array.isArray(s.variables) ? s.variables.filter((v) => v && typeof v === 'object') : [];
+    s.variables = [];
+    vars.forEach((v) => {
+      const type = TR.VAR_TYPES[v.type] ? v.type : 'number';
+      let initial = v.initial === undefined ? TR.defaultInitial(type) : v.initial;
+      if (type === 'list') initial = Array.isArray(initial) ? initial.map(String) : [];
+      if (type === 'flag') initial = initial === true || initial === 'true';
+      s.variables.push({ id: v.id || TR.uid(), name: TR.uniqueVarName(s, v.name), type, initial, sidebar: !!v.sidebar });
+    });
+
+    const passages = s.passages.filter((p) => p && typeof p === 'object');
+    s.passages = [];
+    passages.forEach((p) => {
+      s.passages.push({
+        id: p.id || TR.uid(),
+        name: TR.uniquePassageName(s, p.name),
+        x: Math.max(0, Number(p.x) || 0),
+        y: Math.max(0, Number(p.y) || 0),
+        blocks: normalizeBlocks(p.blocks),
+      });
     });
     if (!s.passages.length) TR.newPassage(s, 'Start', 120, 120);
     if (!s.passages.some((p) => p.id === s.startId)) s.startId = s.passages[0].id;
-    s.created = s.created || Date.now();
-    s.updated = s.updated || Date.now();
+    s.created = Number(s.created) || Date.now();
+    s.updated = Number(s.updated) || Date.now();
     return s;
   };
 
   // ---- Saving in the browser ----
 
   TR.Store = {
+    KEY: STORAGE_KEY,
     load() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);

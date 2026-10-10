@@ -60,6 +60,7 @@ Tick **Show to player** to show a stat in the sidebar while playing.
 - **Export → Twine 2 file (.html)** makes a file for real Twine 2 (*Library → Import*). It uses the **SugarCube 2** story format, so everything keeps working there.
 - **Export → Twee (.twee)** makes a plain-text story file for Tweego and other Twine tools.
 - Click **👀 Peek at the SugarCube code** under any passage to see the code it makes (optional, but a nice way to learn).
+- Exported Twine files include a tiny helper, `<<stat $name>>`, in the Story JavaScript. It shows a stat's value as plain text, so a name like `<b>` or `''` can't break the page.
 
 ## Project files (for the curious)
 

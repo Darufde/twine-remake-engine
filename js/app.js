@@ -6,11 +6,25 @@
   const SEEN_KEY = 'storyBuilder.seenExample';
 
   let stories = TR.Store.load();
+  const deletedIds = new Set();
   const App = (TR.app = {});
 
   TR.saveAll = () => {
+    // Keep stories another open tab added, so two tabs never wipe each other's work.
+    const mine = new Set(stories.map((s) => s.id));
+    TR.Store.load().forEach((s) => { if (!mine.has(s.id) && !deletedIds.has(s.id)) stories.push(s); });
     if (!TR.Store.save(stories)) TR.toast('⚠ Could not save. Your browser storage may be full — please download a backup!', 6000);
   };
+
+  // Another tab changed the stories: pick up its changes (except the story open here).
+  window.addEventListener('storage', (e) => {
+    if (e.key !== TR.Store.KEY) return;
+    const open = TR.editor.currentStory();
+    const fresh = TR.Store.load();
+    stories = fresh.filter((s) => !open || s.id !== open.id);
+    if (open) stories.push(open);
+    if (!$('#library-view').hidden) renderLibrary();
+  });
 
   // ---------- library ----------
 
@@ -33,7 +47,10 @@
     const view = $('#library-view');
     view.innerHTML = '';
     const fileInput = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
-    fileInput.addEventListener('change', () => importBackup(fileInput.files[0]));
+    fileInput.addEventListener('change', () => {
+      importBackup(fileInput.files[0]);
+      fileInput.value = '';
+    });
 
     const sorted = stories.slice().sort((a, b) => b.updated - a.updated);
     view.append(
@@ -80,6 +97,7 @@
         act('🗑', 'Delete', async () => {
           if (!(await TR.confirmBox(`Delete "${s.name}" forever? This cannot be undone. (Tip: Export a backup first.)`, 'Delete story'))) return;
           stories = stories.filter((x) => x !== s);
+          deletedIds.add(s.id);
           TR.saveAll();
           renderLibrary();
         }, 'btn-danger-ghost')));
@@ -113,6 +131,8 @@
           s.id = TR.uid();
           s.name += ' (imported)';
         }
+        // Twine treats two stories with the same IFID as the same story.
+        if (stories.some((x) => x.ifid === s.ifid)) s.ifid = TR.uuid();
         stories.push(s);
         TR.saveAll();
         renderLibrary();

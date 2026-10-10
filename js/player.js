@@ -49,7 +49,7 @@ function TRPlayerFactory() {
     function initialVars() {
       var out = {};
       story.variables.forEach(function (v) {
-        out[v.name] = v.type === 'list' ? copy(v.initial || []) : v.type === 'number' ? num(v.initial) : v.type === 'flag' ? v.initial === true : String(v.initial == null ? '' : v.initial);
+        out[v.name] = v.type === 'list' ? copy(v.initial || []) : v.type === 'number' ? num(v.initial) : v.type === 'flag' ? (v.initial === true || v.initial === 'true') : String(v.initial == null ? '' : v.initial);
       });
       return out;
     }
@@ -68,11 +68,12 @@ function TRPlayerFactory() {
     var mainEl = root.querySelector('.trp-main');
     var backBtn = root.querySelector('[data-act=back]');
     root.querySelector('[data-act=restart]').onclick = function () {
-      if (confirm('Start the story over from the beginning?')) { vars = initialVars(); history = []; go(story.startId); }
+      if (confirm('Start the story over from the beginning?')) { vars = initialVars(); history = []; autoJumps = 0; go(story.startId); }
     };
     backBtn.onclick = function () {
       if (history.length < 2) return;
       history.pop();
+      autoJumps = 0;
       var prev = history[history.length - 1];
       vars = copy(prev.vars);
       render(prev.id);
@@ -84,14 +85,23 @@ function TRPlayerFactory() {
       return String(val);
     }
 
-    function formatText(text) {
-      var out = esc(text);
-      out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-      out = out.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, function (m, name) {
-        var v = varsByName[name];
-        return v ? esc(display(v, vars[name])) : m;
+    // **bold**, *italic* and {stat} -- the same rules the Twine export uses.
+    var TOKEN_RE = /\*\*(.+?)\*\*|\*([^*\n]+?)\*|\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+    function formatLine(line) {
+      var out = '';
+      var last = 0;
+      line.replace(TOKEN_RE, function (m, bold, italic, name, offset) {
+        out += esc(line.slice(last, offset));
+        if (bold != null) out += '<strong>' + formatLine(bold) + '</strong>';
+        else if (italic != null) out += '<em>' + formatLine(italic) + '</em>';
+        else out += varsByName[name] ? esc(display(varsByName[name], vars[name])) : esc(m);
+        last = offset + m.length;
+        return m;
       });
-      return out.replace(/\n/g, '<br>');
+      return out + esc(line.slice(last));
+    }
+    function formatText(text) {
+      return String(text == null ? '' : text).split('\n').map(formatLine).join('<br>');
     }
 
     function check(rule) {
@@ -159,8 +169,10 @@ function TRPlayerFactory() {
           var btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'trp-choice';
-          btn.innerHTML = formatText(b.label || '(choice)');
-          var target = story.passages.some(function (p) { return p.id === b.target; }) ? b.target : null;
+          var targetPassage = null;
+          story.passages.forEach(function (p) { if (p.id === b.target) targetPassage = p; });
+          var target = targetPassage ? targetPassage.id : null;
+          btn.innerHTML = formatText(b.label || (targetPassage ? targetPassage.name : 'Continue'));
           if (!target) { btn.disabled = true; btn.title = 'This choice does not lead anywhere yet'; }
           btn.onclick = function () {
             (b.actions || []).forEach(apply);
@@ -177,7 +189,7 @@ function TRPlayerFactory() {
           }
           if (!done && b.hasElse) renderBlocks(b.elseBlocks, el, ctx);
         } else if (b.type === 'goto') {
-          if (!ctx.jump && b.target) ctx.jump = b.target;
+          if (b.target) ctx.jumps.push(b.target);
         }
       });
     }
@@ -207,21 +219,21 @@ function TRPlayerFactory() {
         updateStats();
         return;
       }
-      var ctx = { jump: null };
+      var ctx = { jumps: [] };
       renderBlocks(p.blocks, passageEl, ctx);
       updateStats();
-      if (ctx.jump) {
-        if (++autoJumps > 50) {
-          passageEl.insertAdjacentHTML('beforeend', '<p class="trp-error">Stopped: the story keeps jumping between passages on its own.</p>');
-          return;
-        }
-        var target = ctx.jump;
+      if (ctx.jumps.length && ++autoJumps > 50) {
+        passageEl.insertAdjacentHTML('beforeend', '<p class="trp-error">Stopped: the story keeps jumping between passages on its own.</p>');
+        return;
+      }
+      // Each jump happens in turn, just like SugarCube's <<goto>>.
+      ctx.jumps.forEach(function (target) {
         setTimeout(function () {
           // A jump replaces the current step, so "Back" skips over it.
           history.pop();
           go(target);
         }, 0);
-      }
+      });
     }
 
     function go(id) {

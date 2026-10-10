@@ -384,5 +384,7 @@ body.connecting, body.connecting * { cursor: copy !important; }
   .workspace { flex-direction: column; }
   #panel { width: 100%; height: 55%; border-left: 0; border-top: 1px solid var(--border); }
   .var-row { grid-template-columns: 1fr 1fr; }
+  .workspace.panel-open .map-tip { display: none; }
+  .map-tip { right: 14px; font-size: 13px; padding: 10px 12px; }
   .var-head { display: none; }
 }
