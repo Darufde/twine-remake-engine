@@ -46,6 +46,7 @@
           h('button', { class: 'btn', onclick: () => fileInput.click() }, '📂 Open a backup'),
           h('button', { class: 'btn', onclick: addExample }, '✨ Add example story'),
           h('button', { class: 'btn btn-ghost', onclick: App.help }, '❓ Help'),
+          h('button', { class: 'btn btn-ghost', onclick: App.toggleTheme }, App.themeButtonLabel()),
           fileInput)),
       h('p', { class: 'notice' }, '💾 Your stories are saved automatically in this browser. Use ', h('strong', {}, 'Export → Backup'), ' now and then to keep a copy safe.'),
       sorted.length
@@ -122,6 +123,18 @@
     };
     reader.readAsText(file);
   }
+
+  // ---------- light / dark mode ----------
+
+  App.isDark = () => document.documentElement.dataset.theme !== 'light';
+  App.themeButtonLabel = () => (App.isDark() ? '☀️ Light mode' : '🌙 Dark mode');
+  App.toggleTheme = () => {
+    const theme = App.isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem('storyBuilder.theme', theme); } catch (e) { /* storage blocked */ }
+    if ($('#library-view').hidden) TR.editor.renderTopbar();
+    else renderLibrary();
+  };
 
   // ---------- play ----------
 

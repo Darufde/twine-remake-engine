@@ -47,6 +47,7 @@ Tick **Show to player** to show a stat in the sidebar while playing.
 ## Playing and sharing
 
 - **▶ Play** tests your story right away. **Play from here** starts from any passage.
+- The app opens in **dark mode**. Click **☀️ Light mode** (top right) to switch; it remembers your choice.
 - **Export → Playable game (.html)** makes one file anyone can double-click to play.
 - **Export → Twine 2 file (.html)** makes a file for real Twine 2 (*Library → Import*). It uses the **SugarCube 2** story format, so everything keeps working there.
 - **Export → Twee (.twee)** makes a plain-text story file for Tweego and other Twine tools.

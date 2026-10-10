@@ -96,8 +96,10 @@
         h('button', { class: 'icon-btn', title: 'Zoom out', onclick: () => setZoom(zoom - 0.1) }, '−'),
         pct,
         h('button', { class: 'icon-btn', title: 'Zoom in', onclick: () => setZoom(zoom + 0.1) }, '+')),
-      h('button', { class: 'btn btn-ghost', onclick: () => TR.app.help() }, '❓ Help'));
+      h('button', { class: 'btn btn-ghost', onclick: () => TR.app.help() }, '❓ Help'),
+      h('button', { class: 'btn btn-ghost', onclick: () => TR.app.toggleTheme() }, TR.app.themeButtonLabel()));
   }
+  E.renderTopbar = renderTopbar;
 
   async function renameStory() {
     const name = await TR.askText({ title: 'Rename story', label: 'Story name', value: story.name, okLabel: 'Rename' });
