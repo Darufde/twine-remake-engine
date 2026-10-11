@@ -3,7 +3,9 @@
   const TR = window.TR;
   const SUGARCUBE_VERSION = '2.37.3';
 
-  const q = (s) => JSON.stringify(String(s == null ? '' : s));
+  // A quoted string for SugarCube code. < and > are written as \u003C / \u003E so a
+  // stray "<<" inside quotes can't confuse SugarCube's If/link parsing.
+  const q = (s) => JSON.stringify(String(s == null ? '' : s)).replace(/</g, '\\u003C').replace(/>/g, '\\u003E');
   const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
   const varById = (story, id) => story.variables.find((v) => v.id === id);
   const passageById = (story, id) => story.passages.find((p) => p.id === id);
@@ -21,11 +23,16 @@
   const TOKEN_RE = /\*\*(.+?)\*\*|\*([^*\n]+?)\*|\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
   // Anything SugarCube would read as code or markup in plain text.
-  const RISKY_RE = /[$_][A-Za-z_$]|\/\/|''|__|==|\^\^|~~|@@|\[|\]|<|>|\/\*|\*\/|\{\{\{|"""|\\|&[#A-Za-z0-9]+;|^\s*[!*#|]|^\s*----|^\s*::|^['/]|['/]$/;
+  const RISKY_RE = /[$_][A-Za-z_$]|\/\/|''|__|==|\^\^|~~|@@|\[|\]|\/\*|\*\/|\{\{\{|"""|\\|&[#A-Za-z]|^\s*[!*#|]|^\s*----|^\s*::|^['/]|['/]$/;
 
+  // Plain text that shows exactly as typed. < and > become &lt; / &gt;, because
+  // SugarCube spots "<<" even inside <nowiki> when looking for an If's end.
   function verbatim(s) {
-    if (!s || !RISKY_RE.test(s)) return s;
-    return '<nowiki>' + s.replace(/<\/nowiki>/gi, '<\u200B/nowiki>') + '</nowiki>';
+    return String(s).split(/([<>])/).map((part) => {
+      if (part === '<') return '&lt;';
+      if (part === '>') return '&gt;';
+      return part && RISKY_RE.test(part) ? '<nowiki>' + part + '</nowiki>' : part;
+    }).join('');
   }
 
   // Shows a stat as plain text. SugarCube's own <<print>> would treat words like
@@ -138,7 +145,7 @@
           const target = passageById(story, b.target);
           const label = b.label || (target ? target.name : 'Continue');
           if (!target) {
-            out += `/* Choice "${label.replace(/\*\//g, '')}" has no destination yet */\\\n`;
+            out += `/* Choice "${label.replace(/\*\/|[<>]/g, '')}" has no destination yet */\\\n`;
             break;
           }
           const actions = (b.actions || []).map((a) => actionCode(story, a)).join('');
